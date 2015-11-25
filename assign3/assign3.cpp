@@ -11,9 +11,13 @@ Name: Caio Vinicius Marques Teixeira
 #include <GL/glu.h>
 #include <GL/glut.h>
 #include <vector>
+#include <queue>
 
 #include <stdio.h>
 #include <string>
+#include <thread>
+
+#include <iostream>
 
 #define MAX_TRIANGLES 2000
 #define MAX_SPHERES 10
@@ -26,9 +30,14 @@ char *filename = 0;
 #define MODE_JPEG 2
 int mode = MODE_DISPLAY;
 
+/*Multithreading config*/
+int N_THREADS = 8; //Number of multiple threads running
+int ACTIVE_THREADS = 0;
+std::queue<std::thread *> threads;
+
 //you may want to make these smaller for debugging purposes
-#define WIDTH 640
-#define HEIGHT 480
+#define WIDTH 800
+#define HEIGHT 640
 //image plane size
 double PLANE_HEIGHT;
 double PLANE_WIDTH;
@@ -109,7 +118,6 @@ std::vector<std::vector<Vector>> pixels;
 
 
 /*Functions declarations*/
-Vector trace(Ray r);
 void plot_pixel_display(int x, int y, unsigned char r, unsigned char g, unsigned char b);
 void plot_pixel_jpeg(int x, int y, unsigned char r, unsigned char g, unsigned char b);
 void plot_pixel(int x, int y, unsigned char r, unsigned char g, unsigned char b);
@@ -120,6 +128,9 @@ Vector minusVectors(Vector a, Vector b);
 Vector scalarMultiply(double s, Vector a);
 double dotProduct(Vector a, Vector b);
 double distance(Vector a, Vector b);
+void traceRow(int i, double y);
+Vector trace(Ray r);
+void waitThreads(bool mid = false);
 
 
 void render_scene();
@@ -331,8 +342,8 @@ void calculateBorders() {
 	double a = WIDTH / HEIGHT;
 
 
-	double x = a * tan(fov / 2);
-	double y = tan(fov / 2);
+	double x = a * tan(fov / 2 * (PI / 180)) ;
+	double y = tan(fov / 2 * (PI / 180));
 	double z = -1.0;
 
 	topLeft.x = -1 * x;
@@ -378,38 +389,55 @@ void render_scene() {
 
 	double y = bottomLeft.y;
 	for (int i = 0; i < HEIGHT * SAMPLING_FACTOR; i++) {
-		double x = bottomLeft.x;
-		for (int j = 0; j < WIDTH * SAMPLING_FACTOR; j++) {
-
-			Vector pixel_position;
-			pixel_position.x = x;
-			pixel_position.y = y;
-			pixel_position.z = -1.0;
-
-			/*Ray direction*/
-			Vector direction = minusVectors(pixel_position, cameraPos);
-			direction = normalize(direction);
-
-			/*Trace the ray*/
-			Ray r;
-			r.origin = cameraPos;
-			r.direction = direction;
-			Vector color = trace(r);
-
-			pixels[i][j].x = color.x;
-			pixels[i][j].y = color.y;
-			pixels[i][j].z = color.z;
-
-			x += PLANE_WIDTH / (WIDTH*SAMPLING_FACTOR);
+			
+		if (ACTIVE_THREADS >= N_THREADS) {
+			waitThreads(true);
 		}
+
+		//std::cout << "Starting Row: " << i << std::endl;
+
+		std::thread * t = new std::thread(traceRow , i, y);
+		threads.push(t);
+		ACTIVE_THREADS++;
 		y += PLANE_HEIGHT / (HEIGHT*SAMPLING_FACTOR);
 	}
-	
+
+	waitThreads();
+}
+
+void traceRow(int j, double y) {
+
+	double x = bottomLeft.x;
+	for (int i = 0; i < WIDTH * SAMPLING_FACTOR; i++) {
+
+		Vector pixel_position;
+		pixel_position.x = x;
+		pixel_position.y = y;
+		pixel_position.z = -1.0;
+
+		/*Ray direction*/
+		Vector direction = minusVectors(pixel_position, cameraPos);
+		direction = normalize(direction);
+
+		/*Trace the ray*/
+		Ray r;
+		r.origin = cameraPos;
+		r.direction = direction;
+
+		//Vector color = trace(r);
+
+		pixels[j][i].x = (i / (WIDTH*SAMPLING_FACTOR)) * 255.0f; //color.x;
+		pixels[j][i].y = (i / (WIDTH*SAMPLING_FACTOR)) * 255.0f; //color.y;
+		pixels[j][i].z = (i / (WIDTH*SAMPLING_FACTOR)) * 255.0f;//color.z;
+
+		x += PLANE_WIDTH / (WIDTH*SAMPLING_FACTOR);
+	}
+
+	//std::cout << "Ending Row: " << j << std::endl;
 }
 
 Vector trace(Ray r) {
 	Vector c;
-	
 
 	return c;
 }
@@ -522,4 +550,17 @@ double dotProduct(Vector a, Vector b) {
 
 double distance(Vector a, Vector b) {
 	return sqrt(pow(a.x - b.x, 2) + pow(a.y - b.y, 2) + pow(a.z - b.z, 2));
+}
+
+
+//Wait for all threads
+void waitThreads(bool mid) {
+
+	int maxThreads = mid ? N_THREADS / 2 : 0;
+
+	while (ACTIVE_THREADS >= maxThreads && !threads.empty()) {
+		threads.front()->join();
+		threads.pop();
+		ACTIVE_THREADS--;
+	}
 }
