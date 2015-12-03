@@ -16,6 +16,7 @@ Name: Caio Vinicius Marques Teixeira
 #include <stdio.h>
 #include <string>
 #include <thread>
+#include <limits>
 
 #include <iostream>
 
@@ -35,9 +36,13 @@ int N_THREADS = 8; //Number of multiple threads running
 int ACTIVE_THREADS = 0;
 std::queue<std::thread *> threads;
 
+//Reflection?
+bool doReflection = false;
+int MAX_RECURSIONS = 5; /*Max ecursion level for reflection*/
+
 //you may want to make these smaller for debugging purposes
-#define WIDTH 800
-#define HEIGHT 640
+#define WIDTH 640
+#define HEIGHT 480 
 //image plane size
 double PLANE_HEIGHT;
 double PLANE_WIDTH;
@@ -49,9 +54,6 @@ double SAMPLING_FACTOR = 2.0f;
 
 //Pi Value
 const double PI = 3.1459265;
-
-//Reflection?
-bool doReflection = false;
 
 unsigned char buffer[HEIGHT][WIDTH][3];
 
@@ -128,8 +130,22 @@ Vector minusVectors(Vector a, Vector b);
 Vector scalarMultiply(double s, Vector a);
 double dotProduct(Vector a, Vector b);
 double distance(Vector a, Vector b);
+//returns the distance in the x axis
+double distance(Ray a, Light b);
+Vector reflection(Vector direction, Vector normal);
+
+Vector posAtRay(Ray r, double t);
+
+Vector computePhongShading(Vector intersection, Vector normal, Vector kd, Vector ks, double sh, Vector v);
+
+/*Intersections*/
+bool intersectsLight(Ray ray, Light light);
+bool intersectsSphere(Ray ray, Sphere sphere, double & distance);
+
+
 void traceRow(int i, double y);
 Vector trace(Ray r);
+
 void waitThreads(bool mid = false);
 
 
@@ -372,9 +388,9 @@ void initScreen() {
 		std::vector<Vector> row;
 		for (int j = 0; j < WIDTH * SAMPLING_FACTOR; j++) {
 			Vector color;
-			color.x = 255.0;
-			color.y = 255.0;
-			color.z = 255.0;
+			color.x = 0.0;
+			color.y = 0.0;
+			color.z = 0.0;
 			row.push_back(color);
 		}
 		pixels.push_back(row);
@@ -424,11 +440,11 @@ void traceRow(int j, double y) {
 		r.origin = cameraPos;
 		r.direction = direction;
 
-		//Vector color = trace(r);
+		Vector color = trace(r);
 
-		pixels[j][i].x = (i / (WIDTH*SAMPLING_FACTOR)) * 255.0f; //color.x;
-		pixels[j][i].y = (i / (WIDTH*SAMPLING_FACTOR)) * 255.0f; //color.y;
-		pixels[j][i].z = (i / (WIDTH*SAMPLING_FACTOR)) * 255.0f;//color.z;
+		pixels[j][i].x = color.x;
+		pixels[j][i].y = color.y;
+		pixels[j][i].z = color.z;
 
 		x += PLANE_WIDTH / (WIDTH*SAMPLING_FACTOR);
 	}
@@ -437,10 +453,209 @@ void traceRow(int j, double y) {
 }
 
 Vector trace(Ray r) {
-	Vector c;
+	Vector c = Vector();
+	c.x = 0.0;
+	c.y = 0.0;
+	c.z = 0.0;
+
+	bool intersects = false;
+
+	double furthestDist = DBL_MAX; //Maximum double value
+
+	//Light intersections
+	for (int i = 0; i < num_lights; i++){
+		if (intersectsLight(r, lights[i])){
+			double dist = distance(r, lights[i]);
+			if (dist < furthestDist){
+				furthestDist = dist;
+				intersects = true;
+				
+				c.x = lights[i].color[0] * 255.0;
+				c.y = lights[i].color[1] * 255.0;
+				c.z = lights[i].color[2] * 255.0;
+			}
+		}
+	}
+
+
+	//Triangle intersections
+
+	//Sphere intersections
+	for (int i = 0; i < num_spheres; i++){
+		double dist;
+		if (intersectsSphere(r, spheres[i], dist)){
+			if (dist < furthestDist){
+				furthestDist = dist;
+				intersects = true;
+
+				/*Calculate normal*/
+				Vector intersection = posAtRay(r, dist);
+				Vector normal;
+				normal.x = intersection.x - spheres[i].position[0];
+				normal.y = intersection.y - spheres[i].position[1];
+				normal.z = intersection.z - spheres[i].position[2];
+				normal = normalize(normal);
+
+
+				/*Phong model variables*/
+				double sh = spheres[i].shininess;
+				Vector kd;
+				kd.x = spheres[i].color_diffuse[0];
+				kd.y = spheres[i].color_diffuse[1];
+				kd.z = spheres[i].color_diffuse[2];
+				Vector ks;
+				ks.x = spheres[i].color_specular[0];
+				ks.y = spheres[i].color_specular[1];
+				ks.z = spheres[i].color_specular[2];
+				Vector v = scalarMultiply(-1.0, r.direction);
+				v = normalize(v);
+
+				Vector phongColor = computePhongShading(intersection, normal, kd, ks, sh, v);
+
+				c.x = phongColor.x * 255.0;
+				c.y = phongColor.y * 255.0;
+				c.z = phongColor.z * 255.0;
+
+			}
+		}
+	}
+
+
+
+	if (intersects){
+		c.x += ambient_light[0] * 255.0;
+		c.y += ambient_light[1] * 255.0;
+		c.z += ambient_light[2] * 255.0;
+	}
+	else {
+		c.x = 255.0;
+		c.y = 255.0;
+		c.z = 255.0;
+	}
+
+	c.x = max(min(c.x, 255.0), 0.0);
+	c.y = max(min(c.y, 255.0), 0.0);
+	c.z = max(min(c.z, 255.0), 0.0);
 
 	return c;
 }
+
+bool intersectsLight(Ray ray, Light light){
+	/*
+	p(t) = p0 + dt;
+	*/
+
+	//if camera and light has the same position
+	if (light.position[0] == ray.origin.x && light.position[1] == ray.origin.y && light.position[2] == ray.origin.z){
+		return false;
+	}
+
+	double dist = (light.position[0] - ray.origin.x) / ray.direction.x;
+	double distY = (light.position[1] - ray.origin.y) / ray.direction.y;
+	double distZ = (light.position[2] - ray.origin.z) / ray.direction.z;
+
+	if (dist != distY || dist != distZ){
+		return false;
+	}
+
+	return true;
+}
+
+bool intersectsSphere(Ray ray, Sphere sphere, double & distance){
+	/*Reference: http://www.ccs.neu.edu/home/fell/CSU540/programs/RayTracingFormulas.htm */
+
+	double radius = sphere.radius;
+	
+	double b = 2.0 * (
+		ray.direction.x * (ray.origin.x - sphere.position[0]) + 
+		ray.direction.y * (ray.origin.y - sphere.position[1]) + 
+		ray.direction.z * (ray.origin.z - sphere.position[2]));
+
+	double c = pow(ray.origin.x - sphere.position[0], 2.0) + 
+		pow(ray.origin.y - sphere.position[1], 2.0) + 
+		pow(ray.origin.z - sphere.position[2], 2.0) - 
+		pow(radius, 2.0);
+
+	double delta = pow(b, 2.0) - 4.0 * c;
+
+	/*No intersections*/
+	if (delta < 0.0) 
+		return false;
+
+	double t0 = (-b + sqrt(delta)) / 2;
+	double t1 = (-b - sqrt(delta)) / 2; 
+
+	if (delta == 0.0) //ray is tanget to the sphere
+		distance = max(t0, t1);
+	else
+		distance = min(t0, t1);
+
+	if (distance < 0.001) //Workaround for phong model
+		return false;
+
+	return true;
+}
+
+Vector computePhongShading(Vector intersection, Vector normal, Vector kd, Vector ks, double sh, Vector v){
+	Vector color;
+
+	color.x = 0.0;
+	color.y = 0.0;
+	color.z = 0.0;
+
+	//Iterate the lights
+	for (int i = 0; i < num_lights; i++){
+		bool shadowed = false;
+
+		/*Create the shadow ray*/
+		Vector lightPos;
+		lightPos.x = lights[i].position[0]; lightPos.y = lights[i].position[1]; lightPos.z = lights[i].position[2];
+
+		Vector direction = minusVectors(lightPos, intersection);
+		direction = normalize(direction);
+
+		Ray shadowRay;
+		shadowRay.direction = direction;
+		shadowRay.origin = intersection;
+
+		double dist = distance(lightPos, intersection);
+
+		/*Triangle intersection*/
+
+		/*Sphere intersection*/
+		for (int j = 0; j < num_spheres; j++){
+			double distSphere;
+			if (intersectsSphere(shadowRay, spheres[j], distSphere)){
+				Vector sInter = posAtRay(shadowRay, distSphere);
+				distSphere = distance(sInter, intersection);
+				if (distSphere <= dist){
+					shadowed = true;
+				}
+			}
+
+		}
+
+		if (!shadowed){
+			//Phong model
+			double LdN = dotProduct(direction, normal);
+			if (LdN < 0.0)
+				LdN = 0.0;
+
+			Vector r = normalize(reflection(direction, normal));
+			double RdV = dotProduct(r, v);
+			if (RdV < 0.0) 
+				RdV = 0.0;
+
+			color.x += lights[i].color[0] * (kd.x * LdN + ks.x * pow(RdV, sh));
+			color.y += lights[i].color[1] * (kd.y * LdN + ks.y * pow(RdV, sh));
+			color.z += lights[i].color[2] * (kd.z * LdN + ks.z * pow(RdV, sh));
+		}
+	}
+
+	return color;
+
+}
+
 
 void display()
 {
@@ -552,8 +767,32 @@ double distance(Vector a, Vector b) {
 	return sqrt(pow(a.x - b.x, 2) + pow(a.y - b.y, 2) + pow(a.z - b.z, 2));
 }
 
+double distance(Ray a, Light b){
+	return (b.position[0] - a.origin.x) / a.direction.x;
+}
+
+
+Vector posAtRay(Ray r, double t){
+	Vector pos;
+	pos.x = r.origin.x + r.direction.x * t;
+	pos.y = r.origin.y + r.direction.y * t;
+	pos.z = r.origin.z + r.direction.z * t;
+	return pos;
+}
+
+Vector reflection(Vector direction, Vector normal){
+	double DdN = dotProduct(direction, normal);
+
+	Vector r;
+	r.x = 2.0 * DdN * normal.x - direction.x;
+	r.y = 2.0 * DdN * normal.y - direction.y;
+	r.z = 2.0 * DdN * normal.z - direction.z;
+	return r;
+}
+
 
 //Wait for all threads
+//if mid is true, only wait for a half of the running threads
 void waitThreads(bool mid) {
 
 	int maxThreads = mid ? N_THREADS / 2 : 0;
