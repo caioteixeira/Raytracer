@@ -32,7 +32,7 @@ char *filename = 0;
 int mode = MODE_DISPLAY;
 
 /*Multithreading config*/
-int N_THREADS = 8; //Number of multiple threads running
+int N_THREADS = 10; //Number of multiple threads running
 int ACTIVE_THREADS = 0;
 std::queue<std::thread *> threads;
 
@@ -137,6 +137,8 @@ Vector reflection(Vector direction, Vector normal);
 Vector buildVector(double ar[3]);
 
 Vector posAtRay(Ray r, double t);
+
+void computeAuxiliarTriangleRenderVars(Triangle tri, Vector & normal, Vector intersection, double & alpha, double & beta, double & gama);
 
 Vector computePhongShading(Vector intersection, Vector normal, Vector kd, Vector ks, double sh, Vector v);
 
@@ -488,9 +490,54 @@ Vector trace(Ray r) {
 				furthestDist = triangleDist;
 				intersects = true;
 
-				c.x = 0.0;
-				c.y = 0.0;
-				c.z = 0.0;
+				//auxiliar variables for phong model computing
+				Vector normal;
+				Vector intersection = posAtRay(r, triangleDist);
+				double alpha, beta, gamma;
+				computeAuxiliarTriangleRenderVars(triangles[i], normal, intersection, alpha, beta, gamma);
+
+				normal.x = triangles[i].v[0].normal[0] * alpha +
+					triangles[i].v[1].normal[0] * beta +
+					triangles[i].v[2].normal[0] * gamma;
+				normal.y = triangles[i].v[0].normal[1] * alpha +
+					triangles[i].v[1].normal[1] * beta +
+					triangles[i].v[2].normal[1] * gamma;
+				normal.z = triangles[i].v[0].normal[2] * alpha +
+					triangles[i].v[1].normal[2] * beta +
+					triangles[i].v[2].normal[2] * gamma;
+
+				Vector kd, ks;
+				kd.x = triangles[i].v[0].color_diffuse[0] * alpha +
+					triangles[i].v[1].color_diffuse[0] * beta +
+					triangles[i].v[2].color_diffuse[0] * gamma;
+				kd.y = triangles[i].v[0].color_diffuse[1] * alpha +
+					triangles[i].v[1].color_diffuse[1] * beta +
+					triangles[i].v[2].color_diffuse[1] * gamma;
+				kd.z = triangles[i].v[0].color_diffuse[2] * alpha +
+					triangles[i].v[1].color_diffuse[2] * beta +
+					triangles[i].v[2].color_diffuse[2] * gamma;
+				ks.x = triangles[i].v[0].color_specular[0] * alpha +
+					triangles[i].v[1].color_specular[0] * beta +
+					triangles[i].v[2].color_specular[0] * gamma;
+				ks.y = triangles[i].v[0].color_specular[1] * alpha +
+					triangles[i].v[1].color_specular[1] * beta +
+					triangles[i].v[2].color_specular[1] * gamma;
+				ks.z = triangles[i].v[0].color_specular[2] * alpha +
+					triangles[i].v[1].color_specular[2] * beta +
+					triangles[i].v[2].color_specular[2] * gamma;
+
+				double sh = triangles[i].v[0].shininess * alpha +
+					triangles[i].v[1].shininess * beta +
+					triangles[i].v[2].shininess * gamma;
+
+				Vector v = scalarMultiply(-1.0, r.direction);
+				v = normalize(v);
+
+				Vector phongColor = computePhongShading(intersection, normal, kd, ks, sh, v);
+
+				c.x = phongColor.x * 255.0;
+				c.y = phongColor.y * 255.0;
+				c.z = phongColor.z * 255.0;
 			}
 		}
 	}
@@ -617,13 +664,13 @@ bool intersectsTriangle(Ray ray, Triangle tri, double & dist){
 		thanks wikipedia :)
 		https://en.wikipedia.org/wiki/M%C3%B6ller%E2%80%93Trumbore_intersection_algorithm
 	*/
-	double e = 0.000001;
+	double e = 0.00001;
 
 	Vector v1 = buildVector(tri.v[0].position);
 	Vector v2 = buildVector(tri.v[1].position);
 	Vector v3 = buildVector(tri.v[2].position);
 
-	Vector e1 = minusVectors(v1, v2);
+	Vector e1 = minusVectors(v2, v1);
 	Vector e2 = minusVectors(v3, v1);
 	
 	//Begin calculating determinant - also used to calculate u parameter
@@ -655,6 +702,26 @@ bool intersectsTriangle(Ray ray, Triangle tri, double & dist){
 	}
 
 	return false;
+}
+
+void computeAuxiliarTriangleRenderVars(Triangle tri, Vector & normal, Vector intersection, double & alpha, double & beta, double & gama) {
+	Vector v1 = buildVector(tri.v[0].position);
+	Vector v2 = buildVector(tri.v[1].position);
+	Vector v3 = buildVector(tri.v[2].position);
+
+	//Normal
+	normal = crossProduct(minusVectors(v2, v1), minusVectors(v3, v1));
+	normal = normalize(normal);
+
+	double a0 = dotProduct(crossProduct(minusVectors(v2, v1), minusVectors(intersection, v1)), normal);
+	double a1 = dotProduct(crossProduct(minusVectors(v3, v2), minusVectors(intersection, v2)), normal);
+	double a2 = dotProduct(crossProduct(minusVectors(v1, v3), minusVectors(intersection, v3)), normal);
+
+	double a = dotProduct(crossProduct(minusVectors(v2, v1), minusVectors(v3, v1)), normal);
+
+	alpha = a1 / a;
+	beta = a2 / a;
+	gama = 1.0 - alpha - beta;
 }
 
 Vector computePhongShading(Vector intersection, Vector normal, Vector kd, Vector ks, double sh, Vector v){
