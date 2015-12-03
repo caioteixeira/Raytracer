@@ -47,7 +47,7 @@ int MAX_RECURSIONS = 5; /*Max ecursion level for reflection*/
 double PLANE_HEIGHT;
 double PLANE_WIDTH;
 
-double SAMPLING_FACTOR = 2.0f;
+double SAMPLING_FACTOR = 3.0f;
 
 //the field of view of the camera
 #define fov 60.0
@@ -134,6 +134,8 @@ double distance(Vector a, Vector b);
 double distance(Ray a, Light b);
 Vector reflection(Vector direction, Vector normal);
 
+Vector buildVector(double ar[3]);
+
 Vector posAtRay(Ray r, double t);
 
 Vector computePhongShading(Vector intersection, Vector normal, Vector kd, Vector ks, double sh, Vector v);
@@ -141,6 +143,7 @@ Vector computePhongShading(Vector intersection, Vector normal, Vector kd, Vector
 /*Intersections*/
 bool intersectsLight(Ray ray, Light light);
 bool intersectsSphere(Ray ray, Sphere sphere, double & distance);
+bool intersectsTriangle(Ray ray, Triangle tri, double & distance);
 
 
 void traceRow(int i, double y);
@@ -355,7 +358,7 @@ int loadScene(char *argv)
 
 void calculateBorders() {
 	//aspect ratio
-	double a = WIDTH / HEIGHT;
+	double a = (double) WIDTH / (double) HEIGHT;
 
 
 	double x = a * tan(fov / 2 * (PI / 180)) ;
@@ -477,8 +480,22 @@ Vector trace(Ray r) {
 		}
 	}
 
-
 	//Triangle intersections
+	for (int i = 0; i < num_triangles; i++){
+		double triangleDist = DBL_MAX;
+		if (intersectsTriangle(r, triangles[i], triangleDist)){
+			if (triangleDist < furthestDist){
+				furthestDist = triangleDist;
+				intersects = true;
+
+				c.x = 0.0;
+				c.y = 0.0;
+				c.z = 0.0;
+			}
+		}
+	}
+
+
 
 	//Sphere intersections
 	for (int i = 0; i < num_spheres; i++){
@@ -595,6 +612,50 @@ bool intersectsSphere(Ray ray, Sphere sphere, double & distance){
 
 	return true;
 }
+bool intersectsTriangle(Ray ray, Triangle tri, double & dist){
+	/*Möller–Trumbore intersection algorithm
+		thanks wikipedia :)
+		https://en.wikipedia.org/wiki/M%C3%B6ller%E2%80%93Trumbore_intersection_algorithm
+	*/
+	double e = 0.000001;
+
+	Vector v1 = buildVector(tri.v[0].position);
+	Vector v2 = buildVector(tri.v[1].position);
+	Vector v3 = buildVector(tri.v[2].position);
+
+	Vector e1 = minusVectors(v1, v2);
+	Vector e2 = minusVectors(v3, v1);
+	
+	//Begin calculating determinant - also used to calculate u parameter
+	Vector p = crossProduct(ray.direction, e2);
+	double det = dotProduct(e1, p);
+
+	//If determinant is near zero, ray lies in plane of triangle
+	if (det > -e && det < e) 
+		return false;
+	double inv_det = 1.0 / det;
+
+	Vector t = minusVectors(ray.origin, v1);
+	double u = dotProduct(t, p) * inv_det;
+	//The intersection lies outside of the triangle
+	if (u < 0.0 || u > 1.0)
+		return false;
+
+	Vector q = crossProduct(t, e1);
+	double v = dotProduct(ray.direction, q) * inv_det;
+	//The intersection lies outside of the triangle
+	if (v < 0.0 || u + v > 1.0)
+		return false;
+
+	double a = dotProduct(e2, q) * inv_det;
+
+	if (a > e){
+		dist = a;
+		return true;
+	}
+
+	return false;
+}
 
 Vector computePhongShading(Vector intersection, Vector normal, Vector kd, Vector ks, double sh, Vector v){
 	Vector color;
@@ -621,6 +682,17 @@ Vector computePhongShading(Vector intersection, Vector normal, Vector kd, Vector
 		double dist = distance(lightPos, intersection);
 
 		/*Triangle intersection*/
+		for (int j = 0; j < num_triangles; j++){
+			double distTriangles;
+			if (intersectsTriangle(shadowRay, triangles[j], distTriangles)){
+				Vector sInter = posAtRay(shadowRay, distTriangles);
+				distTriangles = distance(sInter, intersection);
+				if (distTriangles <= dist){
+					shadowed = true;
+				}
+			}
+		}
+
 
 		/*Sphere intersection*/
 		for (int j = 0; j < num_spheres; j++){
@@ -787,6 +859,14 @@ Vector reflection(Vector direction, Vector normal){
 	r.x = 2.0 * DdN * normal.x - direction.x;
 	r.y = 2.0 * DdN * normal.y - direction.y;
 	r.z = 2.0 * DdN * normal.z - direction.z;
+	return r;
+}
+
+Vector buildVector(double ar[3]){
+	Vector r;
+	r.x = ar[0];
+	r.y = ar[1];
+	r.z = ar[2];
 	return r;
 }
 
