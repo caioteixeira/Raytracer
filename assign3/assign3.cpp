@@ -38,7 +38,7 @@ std::queue<std::thread *> threads;
 
 //Reflection?
 bool doReflection = false;
-int MAX_RECURSIONS = 5; /*Max ecursion level for reflection*/
+int MAX_RECURSIONS = 2; /*Max ecursion level for reflection*/
 
 //you may want to make these smaller for debugging purposes
 #define WIDTH 640
@@ -47,7 +47,7 @@ int MAX_RECURSIONS = 5; /*Max ecursion level for reflection*/
 double PLANE_HEIGHT;
 double PLANE_WIDTH;
 
-double SAMPLING_FACTOR = 3.0f;
+double SAMPLING_FACTOR = 2.0f;
 
 //the field of view of the camera
 #define fov 60.0
@@ -149,7 +149,7 @@ bool intersectsTriangle(Ray ray, Triangle tri, double & distance);
 
 
 void traceRow(int i, double y);
-Vector trace(Ray r);
+Vector trace(Ray r, int count = 0);
 
 void waitThreads(bool mid = false);
 
@@ -457,7 +457,9 @@ void traceRow(int j, double y) {
 	//std::cout << "Ending Row: " << j << std::endl;
 }
 
-Vector trace(Ray r) {
+Vector trace(Ray r, int count) {
+
+
 	Vector c = Vector();
 	c.x = 0.0;
 	c.y = 0.0;
@@ -535,9 +537,29 @@ Vector trace(Ray r) {
 
 				Vector phongColor = computePhongShading(intersection, normal, kd, ks, sh, v);
 
-				c.x = phongColor.x * 255.0;
-				c.y = phongColor.y * 255.0;
-				c.z = phongColor.z * 255.0;
+				if (!doReflection) {
+					c.x = phongColor.x * 255.0;
+					c.y = phongColor.y * 255.0;
+					c.z = phongColor.z * 255.0;
+				}
+				else {
+					c.x = pow(1 - ks.x, count + 1) * phongColor.x * 255.0;
+					c.y = pow(1 - ks.y, count + 1) * phongColor.y * 255.0;
+					c.z = pow(1 - ks.z, count + 1) * phongColor.z * 255.0;
+
+					if (count + 1 < MAX_RECURSIONS) {
+						Ray reflectedRay;
+						reflectedRay.origin = intersection;
+						reflectedRay.direction = normalize(reflection(v, normal));
+
+
+						Vector reflectColor = trace(reflectedRay, count + 1);
+						c.x += ks.x * reflectColor.x;
+						c.y += ks.y * reflectColor.y;
+						c.z += ks.z * reflectColor.z;
+					}
+				}
+				
 			}
 		}
 	}
@@ -576,9 +598,28 @@ Vector trace(Ray r) {
 
 				Vector phongColor = computePhongShading(intersection, normal, kd, ks, sh, v);
 
-				c.x = phongColor.x * 255.0;
-				c.y = phongColor.y * 255.0;
-				c.z = phongColor.z * 255.0;
+				if (!doReflection) {
+					c.x = phongColor.x * 255.0;
+					c.y = phongColor.y * 255.0;
+					c.z = phongColor.z * 255.0;
+				}
+				else {
+					c.x = pow(1 - ks.x, count + 1) * phongColor.x * 255.0;
+					c.y = pow(1 - ks.y, count + 1) * phongColor.y * 255.0;
+					c.z = pow(1 - ks.z, count + 1) * phongColor.z * 255.0;
+
+					if (count + 1 < MAX_RECURSIONS) {
+						Ray reflectedRay;
+						reflectedRay.origin = intersection;
+						reflectedRay.direction = normalize(reflection(v, normal));
+
+
+						Vector reflectColor = trace(reflectedRay, count + 1);
+						c.x += ks.x * reflectColor.x;
+						c.y += ks.y * reflectColor.y;
+						c.z += ks.z * reflectColor.z;
+					}
+				}
 
 			}
 		}
