@@ -4,7 +4,7 @@ A multithreaded raytracer implementation with supersampling antialiasing, recurs
 
 ## Arguments
 The program requires some arguments in the command line:
-- Scene file: the path of file containing the description of the scene (see a example [here](https://github.com/caioteixeira/Raytracer/blob/master/assign3/screenfile.txt)).
+- Scene file: the path of the file containing the description of the scene (see an example [here](https://github.com/caioteixeira/Raytracer/blob/master/assign3/screenfile.txt)).
 - Output (optional): the name of the image file that you want to save your render.
 
 ## How to Compile
